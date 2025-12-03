@@ -5,14 +5,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-// --- CONFIGURAZIONE OPENWEATHERMAP ---
-// ⚠️ SOSTITUISCI QUESTO CON LA TUA VERA CHIAVE API DI OPENWEATHERMAP
 const API_KEY = process.env.OPENWEATHER_API_KEY;
 const OPENWEATHER_API_BASE = "https://api.openweathermap.org/data/2.5";
-// Lingua italiana e unità metriche (Celsius)
 const QUERY_PARAMS = `appid=${API_KEY}&units=metric&lang=it`;
 
-// --- FUNZIONE DI UTILITY PER LE RICHIESTE ---
 /**
  * Helper function for making OpenWeatherMap API requests
  */
@@ -49,20 +45,17 @@ interface WeatherMain {
   humidity: number;
 }
 
-// Struttura per la descrizione del tempo
 interface WeatherDescription {
   main: string; // Es. "Clouds"
   description: string; // Es. "nuvole sparse"
   icon: string;
 }
 
-// Struttura per il vento
 interface Wind {
   speed: number;
   deg: number; // Gradi
 }
 
-// Risposta dell'API "current weather" (meteo attuale)
 interface CurrentWeatherResponse {
   coord: {
     lat: number;
@@ -74,7 +67,6 @@ interface CurrentWeatherResponse {
   name: string; // Nome della città
 }
 
-// --- FUNZIONE DI FORMATTAZIONE ---
 function formatWeather(data: CurrentWeatherResponse): string {
   const weather = data.weather[0]; // Prende la prima e principale descrizione
   const main = data.main;
@@ -102,8 +94,6 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
-// Ho rimosso il tool get-alerts in quanto non supportato per codice stato da OpenWeatherMap.
-
 server.registerTool(
   "get-forecast",
   {
@@ -123,7 +113,6 @@ server.registerTool(
     },
   },
   async ({ latitude, longitude }) => {
-    // Usa l'endpoint 'weather' per ottenere i dati attuali
     const endpoint = `weather?lat=${latitude.toFixed(
       4
     )}&lon=${longitude.toFixed(4)}`;
@@ -157,14 +146,6 @@ server.registerTool(
 
 // Start the server
 async function main() {
-  // Verifica se la chiave API è stata aggiornata
-  // if (API_KEY === "YOUR_OPENWEATHER_API_KEY_HERE") {
-  //   console.error(
-  //     "FATAL ERROR: Per favore, sostituisci 'YOUR_OPENWEATHER_API_KEY_HERE' nel codice con la tua chiave API di OpenWeatherMap."
-  //   );
-  //   process.exit(1);
-  // }
-
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Weather MCP Server running on stdio (using OpenWeatherMap)");
