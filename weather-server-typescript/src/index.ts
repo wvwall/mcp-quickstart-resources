@@ -1,11 +1,11 @@
-import * as dotenv from "dotenv";
-dotenv.config();
-
+// import * as dotenv from "dotenv";
+// dotenv.config({ debug: false });
+import fetch from "node-fetch";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const API_KEY = process.env.OPENWEATHER_API_KEY;
+const API_KEY = "722c4468eeebacbc0f3c6b33d364e1e9";
 const OPENWEATHER_API_BASE = "https://api.openweathermap.org/data/2.5";
 const QUERY_PARAMS = `appid=${API_KEY}&units=metric&lang=it`;
 
@@ -19,7 +19,7 @@ async function makeOpenWeatherRequest<T>(endpoint: string): Promise<T | null> {
     const response = await fetch(url);
     if (!response.ok) {
       // Includi il messaggio di errore se disponibile
-      const errorData = await response.json();
+      const errorData = (await response.json()) as { message?: string };
       throw new Error(
         `HTTP error! status: ${response.status}. Message: ${
           errorData.message || "Unknown error"
@@ -119,13 +119,23 @@ server.registerTool(
     const weatherData = await makeOpenWeatherRequest<CurrentWeatherResponse>(
       endpoint
     );
-
+    console.error("🚀 ~ weatherData:", weatherData);
+    if (!API_KEY) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "La chiave API di OpenWeatherMap non è configurata correttamente sul server.",
+          },
+        ],
+      };
+    }
     if (!weatherData) {
       return {
         content: [
           {
             type: "text",
-            text: "Impossibile recuperare i dati meteo. Verifica le coordinate o la chiave API.",
+            text: "Impossibile recuperare i dati meteo. Verifica le coordinate.",
           },
         ],
       };
@@ -151,7 +161,11 @@ async function main() {
   console.error("Weather MCP Server running on stdio (using OpenWeatherMap)");
 }
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
+main().catch((error: unknown) => {
+  if (error instanceof Error) {
+    console.error(`Fatal error in main(): ${error.message}`);
+  } else {
+    console.error("An unexpected error occurred:", String(error));
+  }
   process.exit(1);
 });
