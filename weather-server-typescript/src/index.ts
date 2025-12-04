@@ -1,227 +1,147 @@
+import * as dotenv from "dotenv";
+dotenv.config({ debug: false });
+import fetch from "node-fetch";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const NWS_API_BASE = "https://api.weather.gov";
-const USER_AGENT = "weather-app/1.0";
+const API_KEY = process.env.OPENWEATHER_API_KEY;
+const OPENWEATHER_API_BASE = "https://api.openweathermap.org/data/2.5";
+const QUERY_PARAMS = `appid=${API_KEY}&units=metric&lang=it`;
 
-// Helper function for making NWS API requests
-async function makeNWSRequest<T>(url: string): Promise<T | null> {
-  const headers = {
-    "User-Agent": USER_AGENT,
-    Accept: "application/geo+json",
-  };
+/**
+ * Helper function for making OpenWeatherMap API requests
+ */
+async function makeOpenWeatherRequest<T>(endpoint: string): Promise<T | null> {
+  const url = `${OPENWEATHER_API_BASE}/${endpoint}&${QUERY_PARAMS}`;
 
   try {
-    const response = await fetch(url, { headers });
+    const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Includi il messaggio di errore se disponibile
+      const errorData = (await response.json()) as { message?: string };
+      throw new Error(
+        `HTTP error! status: ${response.status}. Message: ${
+          errorData.message || "Unknown error"
+        }`
+      );
     }
     return (await response.json()) as T;
   } catch (error) {
-    console.error("Error making NWS request:", error);
+    console.error("Error making OpenWeatherMap request:", error);
     return null;
   }
 }
 
-interface AlertFeature {
-  properties: {
-    event?: string;
-    areaDesc?: string;
-    severity?: string;
-    status?: string;
-    headline?: string;
-  };
+// --- INTERFACCE DATI OPENWEATHERMAP (Simplified) ---
+
+// Struttura per un elemento della previsione (es. temperatura, descrizione)
+interface WeatherMain {
+  temp: number;
+  feels_like: number;
+  temp_min: number;
+  temp_max: number;
+  pressure: number;
+  humidity: number;
 }
 
-// Format alert data
-function formatAlert(feature: AlertFeature): string {
-  const props = feature.properties;
+interface WeatherDescription {
+  main: string; // Es. "Clouds"
+  description: string; // Es. "nuvole sparse"
+  icon: string;
+}
+
+interface Wind {
+  speed: number;
+  deg: number; // Gradi
+}
+
+interface CurrentWeatherResponse {
+  coord: {
+    lat: number;
+    lon: number;
+  };
+  weather: WeatherDescription[];
+  main: WeatherMain;
+  wind: Wind;
+  name: string; // Nome della città
+}
+
+function formatWeather(data: CurrentWeatherResponse): string {
+  const weather = data.weather[0]; // Prende la prima e principale descrizione
+  const main = data.main;
+  const wind = data.wind;
+
   return [
-    `Event: ${props.event || "Unknown"}`,
-    `Area: ${props.areaDesc || "Unknown"}`,
-    `Severity: ${props.severity || "Unknown"}`,
-    `Status: ${props.status || "Unknown"}`,
-    `Headline: ${props.headline || "No headline"}`,
+    `Meteo attuale per: **${data.name || "Sconosciuto"}**`,
     "---",
+    `🌡️ Temperatura: ${main.temp.toFixed(
+      1
+    )}°C (Percepita: ${main.feels_like.toFixed(1)}°C)`,
+    `Min/Max: ${main.temp_min.toFixed(1)}°C / ${main.temp_max.toFixed(1)}°C`,
+    `☀️ Condizioni: ${
+      weather.description.charAt(0).toUpperCase() + weather.description.slice(1)
+    }`,
+    `💨 Vento: ${wind.speed.toFixed(1)} m/s (${wind.deg}°)`,
+    `💧 Umidità: ${main.humidity}%`,
+    `Pressione: ${main.pressure} hPa`,
   ].join("\n");
 }
 
-interface ForecastPeriod {
-  name?: string;
-  temperature?: number;
-  temperatureUnit?: string;
-  windSpeed?: string;
-  windDirection?: string;
-  shortForecast?: string;
-}
-
-interface AlertsResponse {
-  features: AlertFeature[];
-}
-
-interface PointsResponse {
-  properties: {
-    forecast?: string;
-  };
-}
-
-interface ForecastResponse {
-  properties: {
-    periods: ForecastPeriod[];
-  };
-}
-
-// Create server instance
+// --- SERVER MCP ---
 const server = new McpServer({
   name: "weather",
   version: "1.0.0",
 });
 
-// Register weather tools
-server.registerTool(
-  "get-alerts",
-  {
-    description: "Get weather alerts for a state",
-    inputSchema: {
-      state: z
-        .string()
-        .length(2)
-        .describe("Two-letter state code (e.g. CA, NY)"),
-    },
-  },
-  async ({ state }) => {
-    const stateCode = state.toUpperCase();
-    const alertsUrl = `${NWS_API_BASE}/alerts?area=${stateCode}`;
-    const alertsData = await makeNWSRequest<AlertsResponse>(alertsUrl);
-
-    if (!alertsData) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to retrieve alerts data",
-          },
-        ],
-      };
-    }
-
-    const features = alertsData.features || [];
-    if (features.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `No active alerts for ${stateCode}`,
-          },
-        ],
-      };
-    }
-
-    const formattedAlerts = features.map(formatAlert);
-    const alertsText = `Active alerts for ${stateCode}:\n\n${formattedAlerts.join(
-      "\n"
-    )}`;
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: alertsText,
-        },
-      ],
-    };
-  }
-);
-
 server.registerTool(
   "get-forecast",
   {
-    description: "Get weather forecast for a location",
+    description:
+      "Ottieni la previsione meteo attuale per una posizione in Italia o Europa (e nel mondo)",
     inputSchema: {
       latitude: z
         .number()
         .min(-90)
         .max(90)
-        .describe("Latitude of the location"),
+        .describe("Latitudine della posizione"),
       longitude: z
         .number()
         .min(-180)
         .max(180)
-        .describe("Longitude of the location"),
+        .describe("Longitudine della posizione"),
     },
   },
   async ({ latitude, longitude }) => {
-    // Get grid point data
-    const pointsUrl = `${NWS_API_BASE}/points/${latitude.toFixed(
+    const endpoint = `weather?lat=${latitude.toFixed(
       4
-    )},${longitude.toFixed(4)}`;
-    const pointsData = await makeNWSRequest<PointsResponse>(pointsUrl);
-
-    if (!pointsData) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Failed to retrieve grid point data for coordinates: ${latitude}, ${longitude}. This location may not be supported by the NWS API (only US locations are supported).`,
-          },
-        ],
-      };
-    }
-
-    const forecastUrl = pointsData.properties?.forecast;
-    if (!forecastUrl) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to get forecast URL from grid point data",
-          },
-        ],
-      };
-    }
-
-    // Get forecast data
-    const forecastData = await makeNWSRequest<ForecastResponse>(forecastUrl);
-    if (!forecastData) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to retrieve forecast data",
-          },
-        ],
-      };
-    }
-
-    const periods = forecastData.properties?.periods || [];
-    if (periods.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No forecast periods available",
-          },
-        ],
-      };
-    }
-
-    // Format forecast periods
-    const formattedForecast = periods.map((period: ForecastPeriod) =>
-      [
-        `${period.name || "Unknown"}:`,
-        `Temperature: ${period.temperature || "Unknown"}°${
-          period.temperatureUnit || "F"
-        }`,
-        `Wind: ${period.windSpeed || "Unknown"} ${period.windDirection || ""}`,
-        `${period.shortForecast || "No forecast available"}`,
-        "---",
-      ].join("\n")
+    )}&lon=${longitude.toFixed(4)}`;
+    const weatherData = await makeOpenWeatherRequest<CurrentWeatherResponse>(
+      endpoint
     );
+    console.error("🚀 ~ weatherData:", weatherData);
+    if (!API_KEY) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "La chiave API di OpenWeatherMap non è configurata correttamente sul server.",
+          },
+        ],
+      };
+    }
+    if (!weatherData) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Impossibile recuperare i dati meteo. Verifica le coordinate.",
+          },
+        ],
+      };
+    }
 
-    const forecastText = `Forecast for ${latitude}, ${longitude}:\n\n${formattedForecast.join(
-      "\n"
-    )}`;
+    const forecastText = formatWeather(weatherData);
 
     return {
       content: [
@@ -238,10 +158,14 @@ server.registerTool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Weather MCP Server running on stdio");
+  console.error("Weather MCP Server running on stdio (using OpenWeatherMap)");
 }
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
+main().catch((error: unknown) => {
+  if (error instanceof Error) {
+    console.error(`Fatal error in main(): ${error.message}`);
+  } else {
+    console.error("An unexpected error occurred:", String(error));
+  }
   process.exit(1);
 });
