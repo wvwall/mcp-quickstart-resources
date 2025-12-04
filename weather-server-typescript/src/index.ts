@@ -1,11 +1,11 @@
-// import * as dotenv from "dotenv";
-// dotenv.config({ debug: false });
+import * as dotenv from "dotenv";
+dotenv.config({ debug: false });
 import fetch from "node-fetch";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const API_KEY = "722c4468eeebacbc0f3c6b33d364e1e9";
+const API_KEY = process.env.OPENWEATHER_API_KEY;
 const OPENWEATHER_API_BASE = "https://api.openweathermap.org/data/2.5";
 const QUERY_PARAMS = `appid=${API_KEY}&units=metric&lang=it`;
 
